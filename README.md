@@ -1,67 +1,53 @@
-# 7X SNIPER CODEX AI
+# 7X SNIPER Codex AI API (Vercel)
 
-A serverless AI chat API powered by OpenAI Responses API
-and deployed using Vercel.
+This repository deploys the backend API only. Your existing website can remain in its separate project.
 
-## Requirements
+## Files
 
-- GitHub account
-- Vercel account
-- OpenAI API key
+- `api/chat.js` — POST chat endpoint
+- `vercel.json` — Vercel function configuration
+- `package.json` — Node.js project metadata (CommonJS-compatible; no ESM setting)
 
-## Installation
+## Deploy
 
-1. Create a new GitHub repository.
-2. Upload all project files.
-3. Open Vercel.
-4. Import the GitHub repository.
-5. Deploy the project.
+1. Upload the **contents** of this folder to the root of a new GitHub repository. The `api` folder must be directly at the repository root.
+2. Import that repository into Vercel and deploy.
+3. In Vercel → Project → Settings → Environment Variables, add these for Production:
+   - `AI_API_KEY` — your OpenAI API secret key
+   - `AI_MODEL` — an exact model ID available to your OpenAI API account
+   - `API_ACCESS_PASSWORD` — a long, private password you create
+   - `ALLOWED_ORIGIN` — your website's exact origin, e.g. `https://your-site.vercel.app` (no path or trailing slash)
+4. Redeploy after adding or changing environment variables.
 
-## Environment Variables
+## Endpoint
 
-Add these variables in Vercel:
+`POST https://YOUR-VERCEL-DOMAIN/api/chat`
 
-API_ACCESS_PASSWORD = daksh
-AI_API_KEY = your_openai_api_key
-AI_MODEL = gpt-6-luna
-ALLOWED_ORIGIN = *
+The root URL is a backend project, not your website. A root-page 404 does not prove the API is broken. Test the endpoint by sending a POST request with JSON and the `X-API-Password` header. Opening `/api/chat` directly in a browser sends GET and is expected to return `405 Use POST.`
 
-For production, replace * with your website domain.
+Request body:
 
-## API Endpoint
-
-POST /api/chat
-
-## Authentication
-
-Header:
-
-X-API-Password: daksh
-
-## Request
-
+```json
 {
   "messages": [
-    {
-      "role": "user",
-      "content": "Hello 7X SNIPER"
-    }
+    { "role": "user", "content": "Hello 7X SNIPER" }
   ]
 }
+```
 
-## Successful Response
+Required header: `X-API-Password: YOUR_API_ACCESS_PASSWORD`
 
-{
-  "success": true,
-  "brand": "7X SNIPER CODEX AI",
-  "reply": "Hello! How can I help?",
-  "model": "gpt-6-luna"
-}
+## Connect your existing website
 
-## Important
+In your website HTML, set `CODEX_API_URL` to `https://YOUR-VERCEL-DOMAIN/api/chat`. Do not put your OpenAI API key in HTML. The shared access password is only a basic gate; for a public multi-user service, use proper user authentication and shared rate limiting.
 
-Never upload your real .env file or API key to GitHub.
+## Troubleshooting
 
-A password embedded in public frontend JavaScript is visible
-to website visitors. Use proper user authentication and
-server-side session checks for a public production website.
+- `404`: confirm `api/chat.js` is at the GitHub repository root under `api/`, then redeploy.
+- `405` from a browser GET: expected; endpoint accepts POST only.
+- `401`: entered password does not match `API_ACCESS_PASSWORD`.
+- `500`: one or more environment variables are missing.
+- `502`: check API key, model ID, API account billing and permissions.
+- `403`: make `ALLOWED_ORIGIN` exactly match the website origin.
+
+Never commit real API keys or passwords to GitHub.
