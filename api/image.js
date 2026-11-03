@@ -55,7 +55,11 @@ const SIZE_MAP = {
 
 function sendJson(res, statusCode, data) {
   res.statusCode = statusCode;
-  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader(
+    "Content-Type",
+    "application/json; charset=utf-8"
+  );
+
   res.end(JSON.stringify(data));
 }
 
@@ -73,6 +77,7 @@ function parseMultipart(req) {
           fields: 10
         }
       });
+
     } catch (error) {
       reject(new Error("Invalid multipart request."));
       return;
@@ -85,6 +90,7 @@ function parseMultipart(req) {
 
     function fail(message) {
       if (failed) return;
+
       failed = true;
       reject(new Error(message));
     }
@@ -105,18 +111,16 @@ function parseMultipart(req) {
 
       stream.on("data", chunk => {
         fileSize += chunk.length;
-        chunks.push(chunk);
+
+        if (fileSize <= MAX_FILE_SIZE) {
+          chunks.push(chunk);
+        }
       });
 
       stream.on("end", () => {
 
         if (tooLarge || fileSize > MAX_FILE_SIZE) {
           fail("Each image must be smaller than 15 MB.");
-          return;
-        }
-
-        if (files.length >= MAX_IMAGES) {
-          fail("Maximum 3 images are allowed.");
           return;
         }
 
@@ -127,7 +131,8 @@ function parseMultipart(req) {
 
         files.push({
           fieldName,
-          filename: info.filename || `reference-${files.length + 1}`,
+          filename:
+            info.filename || `reference-${files.length + 1}`,
           mimeType: info.mimeType,
           buffer: Buffer.concat(chunks)
         });
@@ -156,17 +161,42 @@ function parseMultipart(req) {
   });
 }
 
+async function readOpenAIResponse(response) {
+  const text = await response.text();
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: {
+        message: text || "Invalid response from image provider."
+      }
+    };
+  }
+}
+
 export default async function handler(req, res) {
 
+  // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "POST, OPTIONS"
+  );
+
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type"
+  );
+
+  // Preflight
   if (req.method === "OPTIONS") {
     res.statusCode = 204;
     return res.end();
   }
 
+  // POST only
   if (req.method !== "POST") {
     return sendJson(res, 405, {
       success: false,
@@ -174,7 +204,10 @@ export default async function handler(req, res) {
     });
   }
 
-  if (!process.env.OPENAI_API_KEY) {
+  // API key check
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
     return sendJson(res, 500, {
       success: false,
       error: "OPENAI_API_KEY is not configured on the server."
@@ -183,7 +216,8 @@ export default async function handler(req, res) {
 
   try {
 
-    const contentType = req.headers["content-type"] || "";
+    const contentType =
+      req.headers["content-type"] || "";
 
     if (!contentType.includes("multipart/form-data")) {
       return sendJson(res, 400, {
@@ -192,13 +226,22 @@ export default async function handler(req, res) {
       });
     }
 
+    // Parse frontend request
     const { fields, files } = await parseMultipart(req);
 
     const prompt = String(fields.prompt || "").trim();
-    const ratio = String(fields.ratio || "1:1");
-    const resolution = String(fields.resolution || "1K");
-    const quality = String(fields.quality || "medium");
 
+    const ratio = String(fields.ratio || "1:1");
+
+    const resolution = String(
+      fields.resolution || "1K"
+    );
+
+    const quality = String(
+      fields.quality || "medium"
+    );
+
+    // Validate prompt
     if (!prompt) {
       return sendJson(res, 400, {
         success: false,
@@ -213,13 +256,18 @@ export default async function handler(req, res) {
       });
     }
 
-    if (!SIZE_MAP[resolution] || !SIZE_MAP[resolution][ratio]) {
+    // Validate dimensions
+    if (
+      !SIZE_MAP[resolution] ||
+      !SIZE_MAP[resolution][ratio]
+    ) {
       return sendJson(res, 400, {
         success: false,
         error: "Invalid image size or aspect ratio."
       });
     }
 
+    // Validate quality
     if (!["low", "medium", "high"].includes(quality)) {
       return sendJson(res, 400, {
         success: false,
@@ -241,20 +289,29 @@ export default async function handler(req, res) {
       "\n\nUSER IMAGE INSTRUCTIONS:\n" +
       prompt;
 
-    const form = new FormData();
-
-    form.append("model", MODEL);
-    form.append("prompt", finalPrompt);
-    form.append("size", size);
-    form.append("quality", quality);
-    form.append("n", "1");
-    form.append("output_format", "png");
-
     let endpoint;
+    let requestBody;
+    let requestHeaders = {
+      "Authorization": `Bearer ${apiKey}`
+    };
+
+    // ==================================
+    // IMAGE EDITING: WITH REFERENCE PHOTOS
+    // ==================================
 
     if (files.length > 0) {
 
-      endpoint = "https://api.openai.com/v1/images/edits";
+      endpoint =
+        "https://api.openai.com/v1/images/edits";
+
+      const form = new FormData();
+
+      form.append("model", MODEL);
+      form.append("prompt", finalPrompt);
+      form.append("size", size);
+      form.append("quality", quality);
+      form.append("n", "1");
+      form.append("output_format", "png");
 
       for (let i = 0; i < files.length; i++) {
 
@@ -262,7 +319,9 @@ export default async function handler(req, res) {
 
         const blob = new Blob(
           [new Uint8Array(file.buffer)],
-          { type: file.mimeType }
+          {
+            type: file.mimeType
+          }
         );
 
         form.append(
@@ -272,24 +331,54 @@ export default async function handler(req, res) {
         );
       }
 
-    } else {
+      requestBody = form;
 
-      endpoint = "https://api.openai.com/v1/images/generations";
     }
+
+    // ==================================
+    // IMAGE GENERATION: WITHOUT PHOTOS
+    // ==================================
+
+    else {
+
+      endpoint =
+        "https://api.openai.com/v1/images/generations";
+
+      requestHeaders["Content-Type"] =
+        "application/json";
+
+      requestBody = JSON.stringify({
+        model: MODEL,
+        prompt: finalPrompt,
+        size: size,
+        quality: quality,
+        n: 1,
+        output_format: "png"
+      });
+
+    }
+
+    // ==================================
+    // OPENAI REQUEST
+    // ==================================
 
     const openaiResponse = await fetch(endpoint, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: form
+      headers: requestHeaders,
+      body: requestBody
     });
 
-    const result = await openaiResponse.json();
+    const result = await readOpenAIResponse(
+      openaiResponse
+    );
 
+    // Provider error
     if (!openaiResponse.ok) {
 
-      console.error("OpenAI API error:", result);
+      console.error(
+        "OpenAI API error:",
+        result
+      );
 
       return sendJson(res, openaiResponse.status, {
         success: false,
@@ -299,6 +388,7 @@ export default async function handler(req, res) {
       });
     }
 
+    // Extract image
     const image = result?.data?.[0]?.b64_json;
 
     if (!image) {
@@ -308,23 +398,29 @@ export default async function handler(req, res) {
       });
     }
 
+    // Success
     return sendJson(res, 200, {
       success: true,
-      image,
+      image: image,
       mimeType: "image/png",
       model: MODEL,
-      size,
-      quality,
+      size: size,
+      quality: quality,
       referenceCount: files.length
     });
 
   } catch (error) {
 
-    console.error("Image API error:", error);
+    console.error(
+      "Image API error:",
+      error
+    );
 
     return sendJson(res, 500, {
       success: false,
-      error: error.message || "Internal server error."
+      error:
+        error.message ||
+        "Internal server error."
     });
   }
 }
