@@ -1,9 +1,12 @@
 {
-  "name": "7x-sniper-codex-ai-api",
-  "version": "1.0.1",
+  "name": "7x-sniper-image-api",
+  "version": "1.0.0",
   "private": true,
+  "type": "module",
   "engines": {
     "node": ">=20"
   },
-  "description": "7X SNIPER Codex AI API for Vercel"
+  "dependencies": {
+    "busboy": "^1.6.0"
+  }
 }
